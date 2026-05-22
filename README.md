@@ -1,4 +1,4 @@
-# [Band Name] — REAPER Live Setup
+# VESPA MAIA — REAPER Live Setup
 
 Region navigation and loop control for live shows, built on top of
 [Reaper Setlist](https://github.com/iKadmium/reaper-setlist).
