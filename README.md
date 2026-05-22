@@ -46,7 +46,7 @@ Download from [reaper.fm](https://reaper.fm) and install.
 3. Copy `live-controls.html` from this repo into that folder
 
 ### 7. Open
-With REAPER running, go to: http://localhost:8083/reaper-setlist/live-controls.html
+With REAPER running, go to: http://localhost:8083/live-controls
 
 ---
 
