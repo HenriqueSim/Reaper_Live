@@ -1,147 +1,207 @@
--- install.lua
--- Run this ONCE from REAPER's action list after placing this folder in your Scripts directory.
--- It will:
---   1. Register the 5 action scripts permanently in REAPER
---   2. Generate realearn-preset.json with the correct command IDs for YOUR installation
---   3. Tell you exactly what to do next
+-- install.lua (v3 — matches verified Helgobox 2.18 export)
+-- Run once from REAPER's action list after copying midi-control/ to your Scripts folder.
 
--- ── Locate the scripts/ folder relative to this file ────────────────────────
-local this_file = ({reaper.get_action_context()})[2]
-local base_dir  = this_file:match("^(.*[/\\])")  -- everything up to the last separator
+local this_file  = ({reaper.get_action_context()})[2]
+local base_dir   = this_file:match("^(.*[/\\])")
+local sep        = package.config:sub(1,1)
+local scripts_dir = base_dir .. "scripts" .. sep
 
-local scripts_dir = base_dir .. "scripts" .. (package.config:sub(1,1))  -- OS separator
-
--- ── Scripts to register ─────────────────────────────────────────────────────
+-- ── Register scripts ──────────────────────────────────────────────────────────
+-- play-pause-toggle.lua is used for m1 instead of the native TransportAction
+-- to avoid the "hold to play, release to pause" gate behaviour.
 local scripts = {
-  { file = "loop-region.lua",       label = "Loop Region Toggle"  },
-  { file = "goto-region-start.lua", label = "Go To Region Start"  },
-  { file = "prev-region.lua",       label = "Previous Region"     },
-  { file = "next-region.lua",       label = "Next Region"         },
-  { file = "panic.lua",             label = "Panic — Stop All"    },
+  { file = "play-pause-toggle.lua",  label = "Play/Pause Toggle"   },
+  { file = "loop-region.lua",        label = "Loop Region Toggle"  },
+  { file = "goto-region-start.lua",  label = "Go To Region Start"  },
+  { file = "prev-region.lua",        label = "Previous Region"     },
+  { file = "next-region.lua",        label = "Next Region"         },
+  { file = "panic.lua",              label = "Panic — Stop All"    },
 }
 
-local named_ids = {}  -- { file -> "_RSxxxxxxxx" }
+local ids = {}  -- { file -> "RSxxxxxxxx" }  NO leading underscore
 
 for _, s in ipairs(scripts) do
-  local full_path = scripts_dir .. s.file
-  local numeric_id = reaper.AddRemoveReaScript(true, 0, full_path, true)
-  if numeric_id == 0 then
+  local path = scripts_dir .. s.file
+  local num  = reaper.AddRemoveReaScript(true, 0, path, true)
+  if num == 0 then
     reaper.ShowMessageBox(
-      "Could not register:\n" .. full_path ..
-      "\n\nMake sure the scripts/ folder is in the same directory as install.lua " ..
-      "and all five .lua files are present.",
+      "Could not register:\n" .. path ..
+      "\n\nMake sure scripts/ folder is in the same directory as install.lua.",
       "Setup Error", 0)
     return
   end
-  -- Get the permanent named ID (e.g. "RSa1b2c3d4...")
-  local named = reaper.ReverseNamedCommandLookup(numeric_id) or ""
+  local named = reaper.ReverseNamedCommandLookup(num) or ""
   if named == "" then
-    reaper.ShowMessageBox("Could not get named ID for: " .. s.file, "Setup Error", 0)
+    reaper.ShowMessageBox("Could not get ID for: " .. s.file, "Setup Error", 0)
     return
   end
-  named_ids[s.file] = "_" .. named  -- ReaLearn expects the leading underscore
+  ids[s.file] = named
 end
 
--- ── Generate realearn-preset.json ───────────────────────────────────────────
--- Pad notes (MIDI channel 10 = index 9, all decimal):
---   Bottom row: 32(Pad1 Play/Pause)  50(Pad2 Stop)  52(Pad3 Loop)  53(Pad4 GoToStart)
---   Top row:    55(Pad5 PrevRegion)  57(Pad6 NextRegion)  59(Pad7 Panic)  60(Pad8 spare)
+-- ── JSON helpers ──────────────────────────────────────────────────────────────
+local function q(s) return '"' .. tostring(s) .. '"' end
 
-local function json_str(s) return '"' .. s .. '"' end
+-- Source block — same for all pads
+local source_tpl = [[{
+          "type":1,"channel":9,"number":%d,
+          "isRegistered":false,"is14Bit":false,
+          "oscArgIndex":0,"buttonIndex":0,
+          "buttonDesign":{
+            "background":{"kind":"Color"},
+            "foreground":{"kind":"None"},
+            "static_text":""
+          }
+        }]]
+
+-- Default mode block
+local mode_default = [[{
+          "maxStepSize":0.05,"minStepFactor":1,"maxStepFactor":5
+        }]]
+
+-- Mode block with press-only (used for m1 Play/Pause)
+local mode_press_only = [[{
+          "maxStepSize":0.05,"minStepFactor":1,"maxStepFactor":5,
+          "buttonUsage":"press-only"
+        }]]
+
+-- Target: native transport action (Stop)
+local target_tpl_transport = [[{
+          "type":16,"invocationType":0,
+          "fxAnchor":"id","useSelectionGanging":false,"useTrackGrouping":false,
+          "seekBehavior":"Immediate","transportAction":%s,
+          "useProject":true,"moveView":true,"seekPlay":true,"oscArgIndex":0,
+          "mouseAction":{"kind":"MoveTo","axis":"X"},
+          "takeMappingSnapshot":{"kind":"LastLoaded"}
+        }]]
+
+-- Target: ReaScript action (all custom scripts + play-pause-toggle)
+local target_tpl_action = [[{
+          "type":0,"commandName":%s,"invocationType":0,
+          "fxAnchor":"id","useSelectionGanging":false,"useTrackGrouping":false,
+          "seekBehavior":"Immediate","useProject":true,
+          "moveView":true,"seekPlay":true,"oscArgIndex":0,
+          "mouseAction":{"kind":"MoveTo","axis":"X"},
+          "takeMappingSnapshot":{"kind":"LastLoaded"}
+        }]]
+
+-- Build a mapping JSON object.
+-- extra_fields: optional string of comma-prefixed extra JSON fields, e.g. ',"feedbackIsEnabled":false'
+local function mapping(id, name, note, target, mode_block, extra_fields)
+  mode_block   = mode_block   or mode_default
+  extra_fields = extra_fields or ""
+  return string.format([[      {
+        "id":%s,"name":%s,
+        "source":%s,
+        "mode":%s,
+        "target":%s%s
+      }]],
+    q(id), q(name),
+    string.format(source_tpl, note),
+    mode_block,
+    target,
+    extra_fields)
+end
+
+-- ── Pad layout (Bank A, channel 10 = index 9) ─────────────────────────────────
+-- Bottom row: Play/Pause(48)  Stop(50)  Loop(52)  GoToStart(53)
+-- Top    row: PrevRegion(55)  NextRegion(57)  Panic(59)  [spare](60)
+
+-- Feedback-only mapping for Pad 3: reflects REAPER's repeat state back to pad LED.
+-- controlIsEnabled:false means it never fires the action, only reads state for feedback.
+-- Note: MPK mini Play mk3 does not support MIDI-controlled LEDs, so this has no
+-- visible effect on the hardware, but is kept for completeness and future-proofing.
+local loop_led_mapping = string.format([[      {
+        "id":"loop-led","name":"Pad 3 — Loop LED (feedback only)",
+        "source":%s,
+        "mode":%s,
+        "target":{
+          "type":16,"fxAnchor":"id",
+          "useSelectionGanging":false,"useTrackGrouping":false,
+          "seekBehavior":"Immediate","transportAction":"repeat",
+          "useProject":true,"moveView":true,"seekPlay":true,"oscArgIndex":0,
+          "mouseAction":{"kind":"MoveTo","axis":"X"},
+          "takeMappingSnapshot":{"kind":"LastLoaded"}
+        },
+        "controlIsEnabled":false
+      }]],
+  string.format(source_tpl, 52),
+  mode_default)
+
+local mappings = table.concat({
+
+  -- m1: Play/Pause — uses play-pause-toggle.lua to avoid gate behaviour.
+  --     press-only mode so release Note-Off doesn't fire a second toggle.
+  mapping("m1", "Pad 1 — Play / Pause",
+          48,
+          string.format(target_tpl_action, q(ids["play-pause-toggle.lua"])),
+          mode_press_only),
+
+  -- m2: Stop — native TransportAction is fine here.
+  mapping("m2", "Pad 2 — Stop",
+          50,
+          string.format(target_tpl_transport, q("stop"))),
+
+  -- m3: Loop — custom script. Feedback disabled; loop-led mapping handles state display.
+  mapping("m3", "Pad 3 — Loop Region Toggle",
+          52,
+          string.format(target_tpl_action, q(ids["loop-region.lua"])),
+          nil,
+          ',"feedbackIsEnabled":false'),
+
+  mapping("m4", "Pad 4 — Go To Region Start",
+          53,
+          string.format(target_tpl_action, q(ids["goto-region-start.lua"]))),
+
+  mapping("m5", "Pad 5 — Previous Region",
+          55,
+          string.format(target_tpl_action, q(ids["prev-region.lua"]))),
+
+  mapping("m6", "Pad 6 — Next Region",
+          57,
+          string.format(target_tpl_action, q(ids["next-region.lua"]))),
+
+  mapping("m7", "Pad 7 — Panic (Stop + All Notes Off)",
+          59,
+          string.format(target_tpl_action, q(ids["panic.lua"]))),
+
+  loop_led_mapping,
+
+}, ",\n")
 
 local preset = string.format([[{
-  "version": "2.16.0",
-  "name": "MPK Mini Play - Live Band Controls",
-  "mappings": [
-    {
-      "id": "m1",
-      "name": "Pad 1 — Play / Pause  (LED: on while playing/paused)",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 32 },
-      "target": { "kind": "TransportAction", "action": "PlayPause" },
-      "feedback_is_enabled": true
-    },
-    {
-      "id": "m2",
-      "name": "Pad 2 — Stop",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 50 },
-      "target": { "kind": "TransportAction", "action": "Stop" },
-      "feedback_is_enabled": false
-    },
-    {
-      "id": "m3-action",
-      "name": "Pad 3 — Loop Region (trigger)",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 52 },
-      "target": { "kind": "ReaperAction", "command": %s, "invocation_type": "Trigger" },
-      "feedback_is_enabled": false
-    },
-    {
-      "id": "m3-led",
-      "name": "Pad 3 — Loop LED (reflects Repeat state, input disabled)",
-      "is_enabled": false,
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 52 },
-      "target": { "kind": "ReaperAction", "command": 1068 },
-      "feedback_is_enabled": true
-    },
-    {
-      "id": "m4",
-      "name": "Pad 4 — Go To Region Start",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 53 },
-      "target": { "kind": "ReaperAction", "command": %s, "invocation_type": "Trigger" },
-      "feedback_is_enabled": false
-    },
-    {
-      "id": "m5",
-      "name": "Pad 5 — Previous Region",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 55 },
-      "target": { "kind": "ReaperAction", "command": %s, "invocation_type": "Trigger" },
-      "feedback_is_enabled": false
-    },
-    {
-      "id": "m6",
-      "name": "Pad 6 — Next Region",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 57 },
-      "target": { "kind": "ReaperAction", "command": %s, "invocation_type": "Trigger" },
-      "feedback_is_enabled": false
-    },
-    {
-      "id": "m7",
-      "name": "Pad 7 — Panic (Stop + All Notes Off)",
-      "source": { "kind": "MidiNoteVelocity", "channel": 9, "key_number": 59 },
-      "target": { "kind": "ReaperAction", "command": %s, "invocation_type": "Trigger" },
-      "feedback_is_enabled": false
-    }
-  ]
-}]],
-  json_str(named_ids["loop-region.lua"]),
-  json_str(named_ids["goto-region-start.lua"]),
-  json_str(named_ids["prev-region.lua"]),
-  json_str(named_ids["next-region.lua"]),
-  json_str(named_ids["panic.lua"])
-)
+  "kind": "MainCompartment",
+  "version": "2.18.2",
+  "value": {
+    "defaultGroup": {},
+    "mappings": [
+%s
+    ]
+  }
+}]], mappings)
 
--- Write the file next to install.lua
-local preset_path = base_dir .. "realearn-preset.json"
-local f = io.open(preset_path, "w")
+-- ── Write file ────────────────────────────────────────────────────────────────
+local out = base_dir .. "realearn-preset.json"
+local f = io.open(out, "w")
 if not f then
-  reaper.ShowMessageBox("Could not write to:\n" .. preset_path, "Setup Error", 0)
+  reaper.ShowMessageBox("Cannot write:\n" .. out, "Setup Error", 0)
   return
 end
 f:write(preset)
 f:close()
 
--- ── Done ────────────────────────────────────────────────────────────────────
 reaper.ShowMessageBox(
   "Setup complete!\n\n" ..
-  "✓ 5 action scripts registered in REAPER\n" ..
-  "✓ realearn-preset.json written to:\n  " .. preset_path .. "\n\n" ..
-  "─── Next steps ───────────────────────\n\n" ..
-  "1. Install ReaLearn:\n" ..
-  "   Extensions > ReaPack > Browse packages\n" ..
-  "   Search 'ReaLearn' > Install > Apply\n\n" ..
-  "2. Create a track named 'MIDI Control'\n" ..
-  "   Set its MIDI output to: MPK mini Play\n\n" ..
-  "3. Add ReaLearn as FX on that track\n\n" ..
-  "4. In ReaLearn: click the import/load button\n" ..
-  "   and open realearn-preset.json\n\n" ..
-  "That's it. Pads are mapped and LEDs are live.",
+  "✓ 6 scripts registered (including play-pause-toggle)\n" ..
+  "✓ realearn-preset.json written to:\n  " .. out .. "\n\n" ..
+  "── Remaining steps ──────────────────\n\n" ..
+  "1. Install ReaLearn (Helgobox) via ReaPack if not done\n\n" ..
+  "2. Create track 'MIDI Control'\n" ..
+  "   Input  → MPK mini Play mk3\n" ..
+  "   Output → MPK mini Play mk3\n\n" ..
+  "3. Add ReaLearn as FX on that track\n" ..
+  "   Set ReaLearn Input  → MIDI: <FX input>\n" ..
+  "   Set ReaLearn Output → MPK mini Play mk3\n\n" ..
+  "4. Open realearn-preset.json in Notepad\n" ..
+  "   Ctrl+A → Ctrl+C\n" ..
+  "   In ReaLearn: click 'Import from clipboard'",
   "Install Complete", 0)

@@ -1,19 +1,14 @@
 -- prev-region.lua
--- Pad 5 action: jump to the start of the previous region.
--- "Previous" means the nearest region whose start is more than 0.2s before
--- the current play position (so tapping at the very start of a region goes
--- to the one before it, not the same one).
+-- Jumps to the start of the previous region and writes seekTarget for the web UI.
 
 local pos = reaper.GetPlayPosition()
 
 local regions = {}
 local i = 0
 while true do
-  local retval, isrgn, start_pos, end_pos, name, _ = reaper.EnumProjectMarkers(i)
+  local retval, isrgn, start_pos, end_pos, name, idx = reaper.EnumProjectMarkers(i)
   if retval == 0 then break end
-  if isrgn then
-    table.insert(regions, { start_pos = start_pos, end_pos = end_pos })
-  end
+  if isrgn then table.insert(regions, { start_pos = start_pos, id = idx }) end
   i = i + 1
 end
 
@@ -29,4 +24,5 @@ end
 
 if target then
   reaper.SetEditCurPos(target.start_pos, true, true)
+  reaper.SetExtState("ReaperSetlist", "seekTarget", tostring(target.id), false)
 end
