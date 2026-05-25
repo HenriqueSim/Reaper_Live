@@ -340,6 +340,20 @@ local Operations = {
 			reaper.Main_OnCommand(1068, 0)
 		end
 	end),
+
+    ["getProjectName"] = safe_operation(function()
+		local name = reaper.GetProjectName(0, "")
+		-- Strip .rpp / .RPP extension
+		name = name:gsub("%.[Rr][Pp][Pp]$", "")
+		-- Replace underscores and hyphens with spaces for readability
+		name = name:gsub("[_%-]", " ")
+		-- Trim leading numbers + spaces (e.g. "01 Song Name" → "Song Name")
+		name = name:gsub("^%d+%s*", "")
+		if name == nil or name == "" then
+			name = "Untitled Project"
+		end
+		reaper.SetExtState(Globals.SECTION, "projectName", name, false)
+	end),
 }
 
 return Operations

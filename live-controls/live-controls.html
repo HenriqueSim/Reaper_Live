@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>REAPER Live Controls</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0d;
+      --bg2:       #161616;
+      --bg3:       #1f1f1f;
+      --border:    #2a2a2a;
+      --text:      #f1f5f9;   /* slate-100 — main readable white */
+      --sub:       #64748b;   /* slate-500 — secondary info     */
+      --muted:     #334155;   /* slate-700 — very subtle        */
+      --green:     #22c55e;
+      --green-bg:  #0d2818;
+      --grey:      #94a3b8;   /* slate-400 */
+      --grey-bg:   #1c1e22;
+      --red:       #ef4444;
+      --red-bg:    #1f0808;
+      --orange:    #f97316;
+      --orange-bg: #1f1005;
+      --amber:     #f59e0b;
+      --amber-bg:  #1f1500;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior: none;
+    }
+
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 960px;
+      margin: 0 auto;
+    }
+
+    /* ── HEADER ─────────────────────────────────────────── */
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .header h1 {
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--muted);
+    }
+    .status-dot {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--sub);
+    }
+    .status-dot::before {
+      content: ''; width: 7px; height: 7px;
+      border-radius: 50%; background: var(--sub); flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .status-dot.connected  { color: var(--green); }
+    .status-dot.connected::before { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.error  { color: var(--red); }
+    .status-dot.error::before { background: var(--red); }
+
+    /* ── TOP INFO BAR (song + state) ────────────────────── */
+
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 20px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      min-height: 76px;
+    }
+
+    .song-info { flex: 1; min-width: 0; }
+
+    .song-title {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text);       /* slate-100 — clean white */
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .song-title.empty { color: var(--muted); font-weight: 400; font-size: 16px; }
+
+    .song-section {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--sub);        /* slate-500 */
+      margin-top: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .state-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    /* State badge — compact pill */
+    .state-badge {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-size: 13px; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      border: 1px solid var(--border);
+      background: var(--bg3);
+      color: var(--sub);
+      transition: background 0.2s, color 0.2s, border-color 0.2s;
+    }
+    .state-badge .badge-icon { font-size: 14px; }
+    .state-badge.playing { background: var(--green-bg); color: var(--green); border-color: var(--green); }
+    .state-badge.paused  { background: var(--grey-bg);  color: var(--grey);  border-color: var(--grey);  }
+    .state-badge.stopped { background: var(--red-bg);   color: var(--red);   border-color: var(--red);   }
+
+    .position-display {
+      font-size: 20px; font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.04em;
+      color: var(--sub);
+    }
+
+    .repeat-pill {
+      font-size: 10px; font-weight: 700; letter-spacing: 0.1em;
+      padding: 2px 8px; border-radius: 20px;
+      background: var(--amber-bg); color: var(--amber);
+      border: 1px solid var(--amber);
+      display: none;
+    }
+    .repeat-pill.visible { display: block; }
+
+    /* ── LOOP BUTTON ────────────────────────────────────── */
+
+    .loop-section {
+      padding: 12px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    #loop-btn {
+      width: 100%; height: 62px;
+      border: 2px solid var(--border); border-radius: 10px;
+      background: var(--bg2); color: var(--text);
+      cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 14px;
+      transition: background 0.15s, border-color 0.15s, transform 0.08s;
+      user-select: none; -webkit-user-select: none;
+    }
+    #loop-btn:active  { transform: scale(0.98); }
+    #loop-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .loop-icon { font-size: 20px; }
+    .loop-text { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+    .loop-main { font-size: 13px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
+    .loop-sub  { font-size: 11px; font-weight: 400; color: var(--sub); }
+    #loop-btn.loop-active { border-color: var(--amber); background: var(--amber-bg); color: var(--amber); }
+    #loop-btn.loop-active .loop-sub { color: #92660a; }
+    #loop-btn.no-region { border-color: var(--red); color: var(--red); }
+
+    /* ── ERROR TOAST ────────────────────────────────────── */
+
+    #error-toast {
+      display: none; margin: 0 20px 8px; padding: 8px 12px;
+      background: var(--red-bg); border: 1px solid var(--red);
+      border-radius: 6px; color: var(--red); font-size: 12px; flex-shrink: 0;
+    }
+    #error-toast.visible { display: block; }
+
+    /* ── REGIONS ────────────────────────────────────────── */
+
+    .regions-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 20px 8px; flex-shrink: 0;
+    }
+    .regions-header h2 {
+      font-size: 10px; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+    }
+    .reload-btn {
+      font-size: 12px; color: var(--sub);
+      background: none; border: 1px solid var(--border);
+      border-radius: 5px; padding: 4px 10px; cursor: pointer;
+    }
+
+    .regions-scroll {
+      flex: 1; overflow-y: auto;
+      padding: 0 20px 20px;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    #regions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 8px;
+    }
+
+    .region-btn {
+      display: flex; flex-direction: column; gap: 4px;
+      padding: 11px 13px;
+      background: var(--bg2); border: 1.5px solid var(--border); border-radius: 8px;
+      color: var(--text); cursor: pointer; text-align: left;
+      transition: background 0.15s, border-color 0.15s, transform 0.08s;
+      min-height: 60px; user-select: none; -webkit-user-select: none;
+    }
+    .region-btn:active { transform: scale(0.97); }
+    .region-btn:hover  { background: var(--bg3); border-color: #3a3a3a; }
+
+    /* Active region — colour tracks transport state */
+    .region-btn.active-playing { background: var(--green-bg);  border-color: var(--green); }
+    .region-btn.active-paused  { background: var(--grey-bg);   border-color: var(--grey);  }
+    .region-btn.active-stopped { background: var(--red-bg);    border-color: var(--red);   }
+
+    .region-btn.active-playing .region-name { color: var(--green); }
+    .region-btn.active-paused  .region-name { color: var(--grey);  }
+    .region-btn.active-stopped .region-name { color: var(--red);   }
+
+    /* Queued (different from current) — orange */
+    .region-btn.queued { background: var(--orange-bg); border-color: var(--orange); }
+    .region-btn.queued .region-name { color: var(--orange); }
+
+    /* Current = next: pulse between state colour and orange */
+    @keyframes pulse-playing {
+      0%, 100% { background: var(--green-bg);  border-color: var(--green);  }
+      50%       { background: var(--orange-bg); border-color: var(--orange); }
+    }
+    @keyframes pulse-paused {
+      0%, 100% { background: var(--grey-bg);   border-color: var(--grey);   }
+      50%       { background: var(--orange-bg); border-color: var(--orange); }
+    }
+    @keyframes pulse-stopped {
+      0%, 100% { background: var(--red-bg);    border-color: var(--red);    }
+      50%       { background: var(--orange-bg); border-color: var(--orange); }
+    }
+    .region-btn.pulse-playing { animation: pulse-playing 1.1s ease-in-out infinite; }
+    .region-btn.pulse-paused  { animation: pulse-paused  1.1s ease-in-out infinite; }
+    .region-btn.pulse-stopped { animation: pulse-stopped 1.1s ease-in-out infinite; }
+
+    .region-name { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--text); }
+    .region-time { font-size: 10px; font-variant-numeric: tabular-nums; color: var(--sub); }
+
+    /* ── LOADING ─────────────────────────────────────────── */
+
+    .empty-state {
+      padding: 40px 16px; text-align: center;
+      color: var(--sub); font-size: 13px; line-height: 1.7;
+    }
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--border); border-top-color: var(--sub);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <h1>Live Controls</h1>
+    <div class="status-dot" id="status-dot">Connecting…</div>
+  </div>
+
+  <!-- Top bar: song name + state -->
+  <div class="top-bar">
+    <div class="song-info">
+      <div class="song-title empty" id="song-title">—</div>
+      <div class="song-section" id="song-section"></div>
+    </div>
+    <div class="state-group">
+      <div class="state-badge stopped" id="state-badge">
+        <span class="badge-icon" id="state-icon">■</span>
+        <span id="state-label">Stopped</span>
+      </div>
+      <div class="position-display" id="position">0:00</div>
+      <div class="repeat-pill" id="repeat-pill">↺ LOOP</div>
+    </div>
+  </div>
+
+  <!-- Loop button -->
+  <div class="loop-section">
+    <button id="loop-btn" disabled>
+      <span class="loop-icon">↺</span>
+      <span class="loop-text">
+        <span class="loop-main" id="loop-main">Loop Current Region</span>
+        <span class="loop-sub"  id="loop-sub">Tap to loop the region under playhead</span>
+      </span>
+    </button>
+  </div>
+
+  <!-- Error toast -->
+  <div id="error-toast"></div>
+
+  <!-- Regions -->
+  <div class="regions-header">
+    <h2>Sections</h2>
+    <button class="reload-btn" id="reload-btn">↺ Reload</button>
+  </div>
+  <div class="regions-scroll">
+    <div id="regions-grid">
+      <div class="empty-state"><span class="spinner"></span>Loading…</div>
+    </div>
+  </div>
+
+</div>
+<script>
+'use strict';
+
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+const REAPER_HOST = window.location.hostname || 'localhost';
+const REAPER_PORT = window.location.port     || '8080';
+const BASE        = `http://${REAPER_HOST}:${REAPER_PORT}/_`;
+const SECTION     = 'ReaperSetlist';
+const POLL_MS     = 200;
+const LUA_WAIT_MS = 180;
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let scriptActionId     = null;
+let regions            = [];
+let currentPos         = 0;
+let repeatOn           = false;
+let playState          = 0;
+let currentProjectName = null;   // REAPER project name = song name
+
+// Queue tracking
+let queuedRegionId     = null;   // ID of the region we're heading to
+let queueIsSameRegion  = false;  // true when queue target = region we were already in
+let lastSeekTarget     = null;   // last seekTarget seen from ExtState
+let seekTargetConsumed = false;  // prevents re-consuming same ExtState value
+
+let loopedRegion       = null;
+let busy               = false;
+
+// ── REAPER HTTP ───────────────────────────────────────────────────────────────
+async function reaperBatch(cmds) {
+  const r = await fetch(`${BASE}/${cmds.join(';')}`, {
+    signal: AbortSignal.timeout(3000)
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return (await r.text()).split('\n').filter(l => l.trim() !== '');
+}
+
+function parseExtState(line) {
+  if (!line) return null;
+  const parts = line.split('\t');
+  if (parts[0] !== 'EXTSTATE') return null;
+  return parts.length >= 4 ? parts.slice(3).join('\t') : '';
+}
+
+async function getExtState(key) {
+  const lines = await reaperBatch([`GET/EXTSTATE/${SECTION}/${key}`]);
+  return parseExtState(lines[0] || '');
+}
+
+async function runLuaOp(operation, params = {}) {
+  if (!scriptActionId) throw new Error('No scriptActionId');
+  const cmds = [];
+  for (const [k, v] of Object.entries(params)) {
+    cmds.push(`SET/EXTSTATE/${SECTION}/${k}/${encodeURIComponent(String(v))}`);
+  }
+  cmds.push(`SET/EXTSTATE/${SECTION}/Operation/${encodeURIComponent(operation)}`);
+  cmds.push(scriptActionId);
+  await reaperBatch(cmds);
+  await sleep(LUA_WAIT_MS);
+}
+
+async function pollReaper() {
+  const lines = await reaperBatch([
+    'TRANSPORT',
+    `GET/EXTSTATE/${SECTION}/seekTarget`,
+    `GET/EXTSTATE/${SECTION}/projectName`
+  ]);
+  const t          = parseTransport(lines[0] || '');
+  const rawSeek    = parseExtState(lines[1] || '');
+  const rawProject = parseExtState(lines[2] || '');
+  const seekTarget = (rawSeek && rawSeek !== '') ? parseInt(rawSeek, 10) : null;
+  const projectName = (rawProject && rawProject.trim()) ? rawProject.trim() : null;
+  return { transport: t, seekTarget, projectName };
+}
+
+function parseTransport(line) {
+  const p = line.split('\t');
+  if (p[0] !== 'TRANSPORT' || p.length < 4) return null;
+  return {
+    playState:       parseInt(p[1], 10),
+    positionSeconds: parseFloat(p[2]),
+    repeatOn:        p[3] === '1',
+  };
+}
+
+// ── REGIONS ───────────────────────────────────────────────────────────────────
+async function loadRegions() {
+  setRegionsHTML('<div class="empty-state"><span class="spinner"></span>Loading sections…</div>');
+  try {
+    await runLuaOp('getRegions');
+    const raw = await getExtState('regions');
+    if (!raw) {
+      setRegionsHTML('<div class="empty-state">No regions found.<br>Create regions in REAPER (Shift+R) and tap Reload.</div>');
+      return;
+    }
+    regions = JSON.parse(raw).sort((a, b) => a.start_pos - b.start_pos);
+    renderRegions();
+  } catch (e) {
+    setRegionsHTML(`<div class="empty-state">Error: ${e.message}</div>`);
+    throw e;
+  }
+}
+
+function getCurrentRegion() {
+  return regions.find(r => currentPos >= r.start_pos && currentPos < r.end_pos) || null;
+}
+
+function getRegionById(id) {
+  return regions.find(r => r.id === id) || null;
+}
+
+// Parse "Song Name - Section Name" convention.
+// Strips leading track numbers like "01 " or "01_".
+function parseName(name) {
+  const sep = name.indexOf(' - ');
+  if (sep > 0) {
+    const raw  = name.substring(0, sep).replace(/^\d+[\s_.-]+/, '').trim();
+    return {
+      song:    raw || name.substring(0, sep).trim(),
+      section: name.substring(sep + 3).trim()
+    };
+  }
+  return { song: null, section: name };
+}
+
+// What region should show as orange "coming next"
+function getEffectiveNext(cur) {
+  if (queuedRegionId !== null) return getRegionById(queuedRegionId);
+  if (repeatOn && cur) return cur;           // looping → current plays again
+  if (!cur) return regions.find(r => r.start_pos > currentPos) || null;
+  const idx = regions.findIndex(r => r.id === cur.id);
+  return (idx >= 0 && idx < regions.length - 1) ? regions[idx + 1] : null;
+}
+
+async function seekToRegion(region) {
+  if (busy) return;
+  busy = true;
+  const cur = getCurrentRegion();
+  queueIsSameRegion  = (cur !== null && cur.id === region.id);
+  queuedRegionId     = region.id;
+  lastSeekTarget     = region.id;
+  seekTargetConsumed = false;
+  renderGrid();
+  try {
+    await runLuaOp('seekTo', { seekPosition: region.start_pos });
+  } catch (e) {
+    showError('Seek failed: ' + e.message);
+  } finally {
+    busy = false;
+  }
+}
+
+// ── LOOP ──────────────────────────────────────────────────────────────────────
+async function enableLoop() {
+  const region = getCurrentRegion();
+  if (!region) { showError('Playhead is not inside any region'); flashLoopBtn(); return; }
+  loopedRegion = region;
+  await runLuaOp('setLoopToRegion', { loopStart: region.start_pos, loopEnd: region.end_pos });
+}
+
+async function disableLoop() {
+  await runLuaOp('disableLoop');
+  loopedRegion = null;
+}
+
+async function handleLoopBtn() {
+  if (busy) return;
+  busy = true;
+  try { repeatOn ? await disableLoop() : await enableLoop(); }
+  catch (e) { showError('Loop toggle failed: ' + e.message); }
+  finally { busy = false; }
+}
+
+// ── RENDER ────────────────────────────────────────────────────────────────────
+function fmt(s) {
+  const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, '0')}`;
+}
+
+const STATE_META = {
+  0: { label: 'Stopped', icon: '■', cls: 'stopped' },
+  1: { label: 'Playing', icon: '▶', cls: 'playing' },
+  2: { label: 'Paused',  icon: '⏸', cls: 'paused'  },
+  5: { label: 'Rec',     icon: '⏺', cls: 'playing' },
+};
+
+function updateUI(t, seekTarget, projectName) {
+  currentPos = t.positionSeconds;
+  repeatOn   = t.repeatOn;
+  playState  = t.playState;
+
+  // Keep the most recent non-null project name (persists across polls)
+  if (projectName) currentProjectName = projectName;
+
+  const meta     = STATE_META[t.playState] || STATE_META[0];
+  const stateCls = meta.cls;
+  const cur      = getCurrentRegion();
+
+  // ── Resolve MIDI-based seek target from ExtState
+  if (seekTarget !== null && seekTarget !== lastSeekTarget) {
+    lastSeekTarget     = seekTarget;
+    seekTargetConsumed = false;
+    queuedRegionId     = seekTarget;
+    queueIsSameRegion  = (cur !== null && cur.id === seekTarget);
+  }
+
+  // ── Consume the queue once the playhead arrives / departs as appropriate
+  if (!seekTargetConsumed && queuedRegionId !== null) {
+    if (queueIsSameRegion) {
+      // Same-region tap: clear when playhead LEAVES (moves to a different region)
+      if ((cur && cur.id !== queuedRegionId) || !cur) {
+        queuedRegionId     = null;
+        seekTargetConsumed = true;
+      }
+    } else {
+      // Normal queue: clear when playhead ARRIVES at the queued region
+      if (cur && cur.id === queuedRegionId) {
+        queuedRegionId     = null;
+        seekTargetConsumed = true;
+      }
+    }
+  }
+
+  // ── State badge
+  const badge = document.getElementById('state-badge');
+  badge.className = `state-badge ${stateCls}`;
+  document.getElementById('state-icon').textContent  = meta.icon;
+  document.getElementById('state-label').textContent = meta.label;
+  document.getElementById('position').textContent    = fmt(t.positionSeconds);
+  document.getElementById('repeat-pill').classList.toggle('visible', t.repeatOn);
+
+  // ── Song title = project name, section = current region name
+  const titleEl   = document.getElementById('song-title');
+  const sectionEl = document.getElementById('song-section');
+
+  if (currentProjectName) {
+    titleEl.textContent = currentProjectName;
+    titleEl.classList.remove('empty');
+  } else {
+    titleEl.textContent = '—';
+    titleEl.classList.add('empty');
+  }
+  sectionEl.textContent = cur ? cur.name : '';
+
+  // ── Loop button
+  updateLoopBtn(t.repeatOn, loopedRegion || cur);
+
+  // ── Region grid
+  renderGrid(stateCls, cur);
+}
+
+function renderGrid(stateCls, cur) {
+  if (!stateCls) stateCls = (STATE_META[playState] || STATE_META[0]).cls;
+  if (cur === undefined) cur = getCurrentRegion();
+
+  const next = getEffectiveNext(cur);
+
+  document.querySelectorAll('.region-btn').forEach(btn => {
+    const id     = parseInt(btn.dataset.id, 10);
+    const isCur  = cur  && cur.id  === id;
+    const isNext = next && next.id === id;
+
+    btn.classList.remove(
+      'active-playing', 'active-paused', 'active-stopped',
+      'queued', 'pulse-playing', 'pulse-paused', 'pulse-stopped'
+    );
+
+    if (isCur && isNext) {
+      btn.classList.add(`pulse-${stateCls}`);   // pulsing: current IS next
+    } else if (isCur) {
+      btn.classList.add(`active-${stateCls}`);
+    } else if (isNext) {
+      btn.classList.add('queued');              // orange: coming up
+    }
+  });
+}
+
+function updateLoopBtn(isLooping, region) {
+  const btn  = document.getElementById('loop-btn');
+  const main = document.getElementById('loop-main');
+  const sub  = document.getElementById('loop-sub');
+  if (isLooping && region) {
+    btn.classList.add('loop-active'); btn.classList.remove('no-region');
+    main.textContent = 'Looping — Tap to Stop';
+    sub.textContent  = region.name;
+  } else {
+    btn.classList.remove('loop-active', 'no-region');
+    main.textContent = 'Loop Current Region';
+    sub.textContent  = region ? `Will loop: ${region.name}` : 'Move playhead inside a region first';
+  }
+}
+
+function flashLoopBtn() {
+  const btn = document.getElementById('loop-btn');
+  btn.classList.add('no-region');
+  setTimeout(() => btn.classList.remove('no-region'), 1200);
+}
+
+function renderRegions() {
+  const grid = document.getElementById('regions-grid');
+  if (!regions.length) {
+    grid.innerHTML = '<div class="empty-state">No regions found.</div>';
+    return;
+  }
+  grid.innerHTML = '';
+  regions.forEach(region => {
+    const btn = document.createElement('button');
+    btn.className  = 'region-btn';
+    btn.dataset.id = region.id;
+    const label = region.name;
+    btn.innerHTML = `
+      <span class="region-name">${esc(label)}</span>
+      <span class="region-time">${fmt(region.start_pos)} – ${fmt(region.end_pos)}</span>
+    `;
+    btn.addEventListener('click', () => seekToRegion(region));
+    grid.appendChild(btn);
+  });
+}
+
+function setRegionsHTML(h) { document.getElementById('regions-grid').innerHTML = h; }
+
+function setStatus(text, kind = 'connecting') {
+  const el = document.getElementById('status-dot');
+  el.textContent = text; el.className = `status-dot ${kind}`;
+}
+
+function showError(msg) {
+  const el = document.getElementById('error-toast');
+  el.textContent = msg; el.classList.add('visible');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.remove('visible'), 4000);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── INIT & POLL ───────────────────────────────────────────────────────────────
+async function init() {
+  setStatus('Connecting…', 'connecting');
+  try {
+    let rawLine;
+    try {
+      const lines = await reaperBatch(['GET/EXTSTATE/ReaperSetlist/ScriptActionId']);
+      rawLine = lines[0] || '';
+    } catch (e) {
+      throw new Error(`Cannot reach REAPER at ${BASE} — ${e.message}`);
+    }
+    const aid = parseExtState(rawLine);
+    if (!aid) throw new Error(
+      `ScriptActionId not found.\nRaw: "${rawLine}"\nRun reaper-setlist.lua in REAPER first.`
+    );
+    scriptActionId = aid;
+    document.getElementById('loop-btn').disabled = false;
+    setStatus('Connected', 'connected');
+    await loadRegions();
+    await refreshProjectName();   // prime the project name before first poll
+    startPolling();
+  } catch (e) {
+    setStatus('Connection failed', 'error');
+    setRegionsHTML(`<div class="empty-state">${e.message.replace(/\n/g,'<br>')}<br><br>Ensure REAPER is running with the web server enabled.</div>`);
+    setTimeout(init, 4000);
+  }
+}
+
+// Asks REAPER to write the current project name into ExtState.
+// Runs on init and every 4s so song changes (tab switches) are picked up quickly.
+async function refreshProjectName() {
+  try { await runLuaOp('getProjectName'); } catch (_) {}
+}
+
+let pollTimer    = null;
+let projectTimer = null;
+
+function startPolling() {
+  if (pollTimer)    clearInterval(pollTimer);
+  if (projectTimer) clearInterval(projectTimer);
+  pollTimer    = setInterval(poll, POLL_MS);
+  projectTimer = setInterval(refreshProjectName, 4000);
+}
+
+async function poll() {
+  try {
+    const { transport, seekTarget, projectName } = await pollReaper();
+    if (!transport) return;
+    updateUI(transport, seekTarget, projectName);
+    setStatus('Connected', 'connected');
+  } catch (_) {
+    setStatus('Reconnecting…', 'error');
+  }
+}
+
+// ── EVENTS ────────────────────────────────────────────────────────────────────
+document.getElementById('loop-btn').addEventListener('click', handleLoopBtn);
+document.getElementById('reload-btn').addEventListener('click', () => {
+  if (!scriptActionId) return;
+  queuedRegionId = null;
+  loadRegions().catch(e => showError(e.message));
+});
+
+init();
+</script>
+</body>
+</html>
