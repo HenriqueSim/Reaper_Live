@@ -1,0 +1,10 @@
+Paste this EXACT text as the name of a marker placed at the end of
+every song project's timeline:
+
+!_RS3cb9d7139629f18facebf0d1ee5dccea4fe64eba
+
+Also create a plain marker named 'StartSong' at the point where the
+NEXT song should begin playback from once this marker is crossed.
+
+Requires SWS extension. Confirm 'Enable SWS marker actions' is checked
+under the REAPER Options menu (usually on by default).

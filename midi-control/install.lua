@@ -12,10 +12,12 @@ local scripts_dir = base_dir .. "scripts" .. sep
 local scripts = {
   { file = "play-pause-toggle.lua",  label = "Play/Pause Toggle"   },
   { file = "loop-region.lua",        label = "Loop Region Toggle"  },
+  { file = "loop-voice-cue.lua",     label = "Loop Voice Cue (internal)" },
   { file = "goto-region-start.lua",  label = "Go To Region Start"  },
   { file = "prev-region.lua",        label = "Previous Region"     },
   { file = "next-region.lua",        label = "Next Region"         },
   { file = "panic.lua",              label = "Panic — Stop All"    },
+  { file = "endsong-action.lua",     label = "End Song Marker Action" },
 }
 
 local ids = {}  -- { file -> "RSxxxxxxxx" }  NO leading underscore
@@ -189,11 +191,39 @@ end
 f:write(preset)
 f:close()
 
+-- ── Write the EndSong marker trigger string to its own reference file ────────
+-- SWS Marker Actions require the marker's NAME ITSELF to be "!" + the action's
+-- named command ID (with leading underscore). This is the exact text to paste
+-- as the marker name at the end of every song project.
+local endsong_marker_text = "!_" .. ids["endsong-action.lua"]
+
+local marker_out = base_dir .. "ENDSONG-MARKER.txt"
+local mf = io.open(marker_out, "w")
+if mf then
+  mf:write(
+    "Paste this EXACT text as the name of a marker placed at the end of\n" ..
+    "every song project's timeline:\n\n" ..
+    endsong_marker_text .. "\n\n" ..
+    "Also create a plain marker named 'StartSong' at the point where the\n" ..
+    "NEXT song should begin playback from once this marker is crossed.\n\n" ..
+    "Requires SWS extension. Confirm 'Enable SWS marker actions' is checked\n" ..
+    "under the REAPER Options menu (usually on by default).\n"
+  )
+  mf:close()
+end
+
 reaper.ShowMessageBox(
   "Setup complete!\n\n" ..
-  "✓ 6 scripts registered (including play-pause-toggle)\n" ..
-  "✓ realearn-preset.json written to:\n  " .. out .. "\n\n" ..
-  "── Remaining steps ──────────────────\n\n" ..
+  "✓ 7 scripts registered (including play-pause-toggle + endsong-action)\n" ..
+  "✓ realearn-preset.json written to:\n  " .. out .. "\n" ..
+  "✓ ENDSONG-MARKER.txt written to:\n  " .. marker_out .. "\n\n" ..
+  "── EndSong marker text ──────────────\n\n" ..
+  "Paste this as a marker name at the end of every song:\n\n" ..
+  endsong_marker_text .. "\n\n" ..
+  "Also add a plain marker named 'StartSong' where the next\n" ..
+  "song should begin. Requires SWS — confirm 'Enable SWS\n" ..
+  "marker actions' is checked in the Options menu.\n\n" ..
+  "── Remaining MIDI steps ──────────────\n\n" ..
   "1. Install ReaLearn (Helgobox) via ReaPack if not done\n\n" ..
   "2. Create track 'MIDI Control'\n" ..
   "   Input  → MPK mini Play mk3\n" ..
